@@ -13,14 +13,27 @@ A high-performance, cross-platform command-line utility built in Rust to reliabl
 
 ## 🗺️ Product Roadmap
 
-### Phase 1: Native CLI Core (Current)
+### Phase 1: Native CLI Core (Complete)
 - [x] Asynchronous download handling via Tokio.
-- [x] Single-binary compilation across platforms without heavy bundlers (Nuitka/PyInstaller).
 - [x] Stream selection to force standard, highly compatible `.mp4` structures over `.webm`.
+- [x] Automatic local provisioning of the underlying operational binary (`yt-dlp`).
 
-### Phase 2: User Interface Expansion (Next Up)
-- Transition the backend engine to support an intuitive Graphical User Interface (GUI).
-- Maintain single-executable portability (no heavy Electron/Node runtimes).
+### Phase 2: Desktop User Interface Development (Current Focus)
+- [ ] Build a lightweight, native desktop window using a compiled Rust GUI framework (`slint` or `egui`).
+- [ ] Design an interactive control center featuring:
+  - A multi-line text input field supporting batch processing (one URL per line).
+  - A native OS file dialog button ("Browse...") to dynamically set paths.
+- [ ] Offload download logic to background async tasks using `tokio::spawn` to keep the UI responsive.
+
+### Phase 3: Audio Extraction, Resolution, & Batch Parsing (Next Up)
+- [ ] Implement `MediaFormat` enum parsing to natively support **M4A (Direct Stream Copy)** and **MP3 (High-Quality VBR)**.
+- [ ] Integrate explicit target resolution restrictions (`360p`, `480p`, `720p`, `1080p`) via strict stream height filters.
+- [ ] Add contextual UI state management (automatically graying out/disabling the Resolution dropdown when "Audio Only" is checked).
+- [ ] Implement string-splitting (`.lines()`) and sanitation to process multiple URLs sequentially or concurrently.
+
+### Phase 4: Media Post-Processing & Upscaling (Future Expansion)
+- [ ] Introduce a modular "Sidecar Pattern" pipeline to invoke localized transcoders without expanding the base binary size.
+- [ ] Implement resolution modifications (like basic upscaling or conversion to legacy containers) via a decoupled execution process.
 
 ---
 
@@ -32,17 +45,30 @@ To move from our current CLI to a application window matching your goal (Input B
 For a lightweight, single-binary application, **Slint** or **egui** are ideal choices. They compile down to native machine code, don't require web wrappers, and load instantly on your desktop.
 
 #### Draft UI Blueprint
-+-------------------------------------------------------------+
-|  yt-downloader (GUI Mode)                                   |
-+-------------------------------------------------------------+
-|  YouTube URL:                                               |
-|  [ https://www.youtube.com/watch?v=...                   ]  |
-|                                                             |
-|  Save Destination:                                          |
-|  [ /home/ink/downloads/videos/                           ]  |
-|                                                             |
-|                      [ DOWNLOAD VIDEO ]                     |
-+-------------------------------------------------------------+
++-----------------------------------------------------------------+
+| 📥 yt-downloader                                                |
++-----------------------------------------------------------------+
+|                                                                 |
+|  YouTube URLs (One per line):                                   |
+|  +-----------------------------------------------------------+  |
+|  | https://www.youtube.com/watch?v=dQw4w9WgXcQ               |  |
+|  | https://www.youtube.com/watch?v=kJQP7kiw5Fk               |  |
+|  |                                                           |  |
+|  +-----------------------------------------------------------+  |
+|                                                                 |
+|  Save Destination:                                              |
+|  [ /home/ink/downloads/videos/                      ] [Browse..] |
+|                                                                 |
+|  Download Options:                                              |
+|  (•) Video                  ( ) Audio Only                      |
+|                                                                 |
+|  Resolution:                 Output Format:                     |
+|  [ 1080p v ]                 [ MP4  v ]                         |
+|                                                                 |
+|  Progress: [=========================>-------------] 3/5 Videos |
+|                                                                 |
+|                       [ START DOWNLOAD ]                        |
++-----------------------------------------------------------------+
 
 
 How the Data Will Flow inside Rust:

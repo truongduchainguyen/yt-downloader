@@ -3,6 +3,7 @@ name: Build Cross-Platform Binaries
 on:
   push:
     branches: [ "main" ]
+    tags: [ "v*" ] # 🌟 This triggers the release job when you create a version tag
   pull_request:
     branches: [ "main" ]
 
@@ -16,12 +17,15 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact_name: yt-downloader-linux
+            binary_path: target/x86_64-unknown-linux-gnu/release/yt-downloader
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact_name: yt-downloader-windows.exe
+            artifact_name: yt-downloader-windows
+            binary_path: target/x86_64-pc-windows-msvc/release/yt-downloader.exe
           - os: macos-latest
             target: x86_64-apple-darwin
             artifact_name: yt-downloader-mac
+            binary_path: target/x86_64-apple-darwin/release/yt-downloader
 
     steps:
     - name: Checkout Code
@@ -35,10 +39,47 @@ jobs:
     - name: Cargo Build (Release)
       run: cargo build --release --target ${{ matrix.target }}
 
+    # We rename the binaries so they look clean when users download them
+    - name: Rename Binaries
+      shell: bash
+      run: |
+        mkdir -p staging
+        if [ "${{ matrix.os }}" = "windows-latest" ]; then
+          cp ${{ matrix.binary_path }} staging/yt-downloader.exe
+        elif [ "${{ matrix.os }}" = "macos-latest" ]; then
+          cp ${{ matrix.binary_path }} staging/yt-downloader-mac
+        else
+          cp ${{ matrix.binary_path }} staging/yt-downloader-linux
+        fi
+
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.artifact_name }}
-        path: |
-          target/${{ matrix.target }}/release/yt-downloader
-          target/${{ matrix.target }}/release/yt-downloader.exe
+        path: staging/*
+
+  # 🌟 NEW JOB: This runs ONLY when you push a tag like v0.1.0
+  release:
+    name: Create GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download All Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: all-artifacts
+
+    - name: Flatten Artifacts Directory
+      run: |
+        mkdir -p release-assets
+        cp all-artifacts/yt-downloader-linux/yt-downloader-linux release-assets/
+        cp all-artifacts/yt-downloader-windows/yt-downloader.exe release-assets/
+        cp all-artifacts/yt-downloader-mac/yt-downloader-mac release-assets/
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: release-assets/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
