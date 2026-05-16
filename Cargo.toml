@@ -1,0 +1,8 @@
+[package]
+name = "yt-downloader"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+youtube_dl = { version = "0.10", features = ["tokio", "downloader-rustls-tls"] }
+tokio = { version = "1", features = ["full"] }

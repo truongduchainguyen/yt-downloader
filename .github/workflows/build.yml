@@ -1,0 +1,44 @@
+name: Build Cross-Platform Binaries
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: yt-downloader-linux
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: yt-downloader-windows.exe
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: yt-downloader-mac
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Setup Rust Toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.target }}
+
+    - name: Cargo Build (Release)
+      run: cargo build --release --target ${{ matrix.target }}
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact_name }}
+        path: |
+          target/${{ matrix.target }}/release/yt-downloader
+          target/${{ matrix.target }}/release/yt-downloader.exe
