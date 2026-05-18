@@ -1,30 +1,220 @@
-use std::env;
-use std::path::Path;
-use youtube_dl::YoutubeDl;
+use eframe::egui;
+
+mod config;
+mod engine;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args: Vec<String> = env::args().collect();
+async fn main() -> eframe::Result<()> {
+    // 1. Configure the native OS window settings
+    let native_options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([550.0, 400.0]) // Width, Height
+            .with_resizable(true),
+        ..Default::default()
+    };
+    let (tx, rx) = tokio::sync::mpsc::channel::<config::AppState>(32);
 
-    if args.len() < 2 {
-        println!("❌ Error: Please provide a YouTube URL.");
-        println!("Usage: cargo run -- <URL>");
-        return Ok(());
+    // 2. Start the application loop
+    eframe::run_native(
+        "📥 YouTube Batch Downloader",
+        native_options,
+        Box::new(|_cc| Box::new(YtDownloaderApp::new(tx, rx))),
+    )
+}
+
+// 3. This struct holds the live STATE of our user interface
+struct YtDownloaderApp {
+    url_input: String,
+    destination_path: String,
+    is_audio_only: bool,
+    state: config::AppState,
+    rx: tokio::sync::mpsc::Receiver<config::AppState>,
+    tx: tokio::sync::mpsc::Sender<config::AppState>,
+}
+
+// 4. Set the initial values when the app first launches
+impl YtDownloaderApp {
+    fn new(
+        tx: tokio::sync::mpsc::Sender<config::AppState>,
+        rx: tokio::sync::mpsc::Receiver<config::AppState>,
+    ) -> Self {
+        Self {
+            url_input: String::new(),
+            destination_path: String::from("/home/ink/Downloads"), // Default Arch path
+            is_audio_only: false,
+            state: config::AppState::Idle(String::from("Ready")),
+            rx,
+            tx,
+        }
     }
+}
 
-    let url = &args[1];
-    let provider_path = Path::new(".");
-    println!("🔍 Checking for yt-dlp engine in current folder...");
+impl eframe::App for YtDownloaderApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        match self.rx.try_recv() {
+            Ok(new_state) => {
+                self.state = new_state;
+            }
+            Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                // If the background thread dropped completely without sending a message,
+                // force the UI out of the infinite loop
+                if !matches!(self.state, config::AppState::Idle(_))
+                    && !matches!(self.state, config::AppState::Error(_))
+                {
+                    self.state = config::AppState::Error(String::from(
+                        "Background thread disconnected unexpectedly.",
+                    ));
+                }
+            }
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {}
+        }
 
-    let yt_dlp_executable = youtube_dl::download_yt_dlp(provider_path).await?;
-    println!("📥 Starting download: {}", url);
+        // Render a clean, central panel window layout
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.heading("📥 YouTube Downloader");
+            ui.add_space(10.0); // Margin space
 
-    let mut downloader = YoutubeDl::new(url);
-    downloader.youtube_dl_path(&yt_dlp_executable);
-    downloader.format("bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best");
+            // Create a helper boolean to check if the app is currently idle
+            let is_idle = matches!(self.state, config::AppState::Idle(_));
 
-    downloader.download_to("downloads")?;
-    println!("✅ Success! Your video is in the 'downloads' folder.");
+            // 🌟 CHANGE 2: Wrap inputs in an add_enabled_ui block so they lock during download
+            ui.add_enabled_ui(is_idle, |ui| {
+                // --- URL Input Component ---
+                ui.label("YouTube URLs (One per line):");
+                ui.add(
+                    egui::TextEdit::multiline(&mut self.url_input)
+                        .hint_text("https://youtube.com/...")
+                        .desired_rows(4)
+                        .desired_width(f32::INFINITY),
+                );
+                ui.add_space(10.0);
 
-    Ok(())
+                // --- Destination Component ---
+                ui.label("Save Destination:");
+                ui.horizontal(|ui| {
+                    ui.text_edit_singleline(&mut self.destination_path);
+                    if ui.button("Browse...").clicked() {
+                        // 1. Launch a native directory picker window
+                        if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                            // 2. Convert the PathBuf securely into a lossy String and assign it to our state
+                            self.destination_path = path.to_string_lossy().into_owned();
+                        }
+                    }
+                });
+                ui.add_space(10.0);
+
+                // --- Toggle Checkbox Component ---
+                ui.checkbox(&mut self.is_audio_only, "🎵 Audio Only (MP3/M4A)");
+            });
+
+            ui.add_space(20.0);
+
+            // 🌟 CHANGE 3: Dynamic button state handling
+            ui.add_enabled_ui(is_idle, |ui| {
+                // Change the button text based on the active state
+                let button_text = if is_idle {
+                    "🚀 START DOWNLOAD"
+                } else {
+                    "⏳ DOWNLOADING..."
+                };
+
+                let start_button =
+                    ui.add_sized([ui.available_width(), 40.0], egui::Button::new(button_text));
+
+                if start_button.clicked() {
+                    println!("Download triggered!");
+                    println!("URLs to process:\n{}", self.url_input);
+                    println!("Destination: {}", self.destination_path);
+                    println!("Audio only mode: {}", self.is_audio_only);
+
+                    self.state =
+                        config::AppState::Downloading(String::from("Initializing engine..."));
+
+                    let tx = self.tx.clone();
+                    let parsed_urls: Vec<String> =
+                        self.url_input.lines().map(|s| s.to_string()).collect();
+
+                    let target_format = if self.is_audio_only {
+                        engine::MediaFormat::Mp3
+                    } else {
+                        engine::MediaFormat::Mp4
+                    };
+
+                    let dest_path = self.destination_path.clone();
+
+                    tokio::spawn(async move {
+                        // 🌟 1. Securely check/download the binary once per click action inside the thread container
+                        let provider_path = std::path::Path::new(".");
+                        match youtube_dl::download_yt_dlp(provider_path).await {
+                            Ok(yt_dlp_path) => {
+                                // 🌟 2. Construct configuration containing the locked-down engine path
+                                let config = engine::DownloadConfig {
+                                    urls: parsed_urls,
+                                    destination_path: dest_path,
+                                    target_format,
+                                    engine_path: yt_dlp_path,
+                                };
+
+                                // 🌟 3. Await the execution loop
+                                match engine::run_download_engine(config).await {
+                                    Ok(()) => {
+                                        let _ = tx
+                                            .send(config::AppState::Idle(String::from(
+                                                "Success! All files saved.",
+                                            )))
+                                            .await;
+                                    }
+                                    Err(err_msg) => {
+                                        let _ = tx.send(config::AppState::Error(err_msg)).await;
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                let _ = tx
+                                    .send(config::AppState::Error(format!(
+                                        "Failed to fetch engine: {}",
+                                        e
+                                    )))
+                                    .await;
+                            }
+                        }
+                    });
+                }
+            });
+            ui.add_space(15.0);
+            ui.separator(); // Draws a clean line separating the button from the status bar
+            ui.add_space(5.0);
+
+            match &self.state {
+                config::AppState::Idle(msg) => {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(100, 200, 100),
+                        format!("🟢 Status: {}", msg),
+                    );
+                }
+                config::AppState::Downloading(msg) => {
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Spinner::new());
+                        ui.colored_label(
+                            egui::Color32::from_rgb(200, 200, 100),
+                            format!(" {}", msg),
+                        );
+                    });
+                }
+                config::AppState::Error(msg) => {
+                    // 🔴 This turns bright red and unlocks your input widgets!
+                    ui.colored_label(
+                        egui::Color32::from_rgb(230, 90, 90),
+                        format!("❌ Error: {}", msg),
+                    );
+                }
+            }
+            if !is_idle {
+                ui.add_space(5.0);
+                if ui.button("⚠️ Force Stop / Reset UI").clicked() {
+                    self.state = config::AppState::Idle(String::from("Engine reset manually."));
+                }
+            }
+        });
+    }
 }

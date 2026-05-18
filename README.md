@@ -19,11 +19,11 @@ A high-performance, cross-platform command-line utility built in Rust to reliabl
 - [x] Automatic local provisioning of the underlying operational binary (`yt-dlp`).
 
 ### Phase 2: Desktop User Interface Development (Current Focus)
-- [ ] Build a lightweight, native desktop window using a compiled Rust GUI framework (`slint` or `egui`).
-- [ ] Design an interactive control center featuring:
+- [x] Build a lightweight, native desktop window using a compiled Rust GUI framework (`slint` or `egui`).
+- [x] Design an interactive control center featuring:
   - A multi-line text input field supporting batch processing (one URL per line).
   - A native OS file dialog button ("Browse...") to dynamically set paths.
-- [ ] Offload download logic to background async tasks using `tokio::spawn` to keep the UI responsive.
+- [x] Offload download logic to background async tasks using `tokio::spawn` to keep the UI responsive.
 
 ### Phase 3: Audio Extraction, Resolution, & Batch Parsing (Next Up)
 - [ ] Implement `MediaFormat` enum parsing to natively support **M4A (Direct Stream Copy)** and **MP3 (High-Quality VBR)**.
@@ -36,13 +36,6 @@ A high-performance, cross-platform command-line utility built in Rust to reliabl
 - [ ] Implement resolution modifications (like basic upscaling or conversion to legacy containers) via a decoupled execution process.
 
 ---
-
-## 🚀 Next Steps: Designing the GUI Architecture
-
-To move from our current CLI to a application window matching your goal (Input Box, Destination Picker, and Execute Button), we will integrate a native Rust GUI framework.
-
-### Recommended GUI Framework: `slint` or `egui`
-For a lightweight, single-binary application, **Slint** or **egui** are ideal choices. They compile down to native machine code, don't require web wrappers, and load instantly on your desktop.
 
 #### Draft UI Blueprint
 +-----------------------------------------------------------------+
