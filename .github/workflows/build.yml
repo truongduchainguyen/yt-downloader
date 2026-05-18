@@ -2,10 +2,8 @@ name: Build Cross-Platform Binaries
 
 on:
   push:
-    branches: [ "main" ]
-    tags: [ "v*" ]
-  pull_request:
-    branches: [ "main" ]
+    tags:
+      - "v*" # 🟢 Triggers strictly when a tag starting with 'v' is pushed
 
 permissions:
   contents: write
@@ -29,14 +27,15 @@ jobs:
             target: x86_64-apple-darwin
             artifact_name: yt-downloader-mac
             binary_path: target/x86_64-apple-darwin/release/yt-downloader
-
     steps:
     - name: Checkout Code
       uses: actions/checkout@v4
+
     - name: Setup Rust Toolchain
       uses: dtolnay/rust-toolchain@stable
       with:
         targets: ${{ matrix.target }}
+
     - name: Cargo Build (Release)
       run: cargo build --release --target ${{ matrix.target }}
 
@@ -51,6 +50,7 @@ jobs:
         else
           cp ${{ matrix.binary_path }} staging/yt-downloader-linux
         fi
+
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
@@ -60,19 +60,20 @@ jobs:
   release:
     name: Create GitHub Release
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest # 🟢 Removed the redundant tag condition check here
     steps:
     - name: Download All Artifacts
       uses: actions/download-artifact@v4
       with:
         path: all-artifacts
+
     - name: Flatten Artifacts Directory
       run: |
         mkdir -p release-assets
         cp all-artifacts/yt-downloader-linux/yt-downloader-linux release-assets/
         cp all-artifacts/yt-downloader-windows/yt-downloader.exe release-assets/
         cp all-artifacts/yt-downloader-mac/yt-downloader-mac release-assets/
+
     - name: Create Release
       uses: softprops/action-gh-release@v2
       with:
