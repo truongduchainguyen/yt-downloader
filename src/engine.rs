@@ -6,10 +6,18 @@ pub enum MediaFormat {
     Mp3,
 }
 
+pub enum VideoResolution {
+    Res1080,
+    Res720,
+    Res480,
+    Res360,
+}
+
 pub struct DownloadConfig {
     pub urls: Vec<String>,
     pub destination_path: String,
     pub target_format: MediaFormat,
+    pub target_resolution: VideoResolution,
     pub engine_path: PathBuf,
 }
 
@@ -83,8 +91,18 @@ pub async fn run_download_engine(config: DownloadConfig) -> Result<(), String> {
                     .extra_arg("0");
             }
             MediaFormat::Mp4 => {
+                let height_cap = match config.target_resolution {
+                    VideoResolution::Res1080 => "1080",
+                    VideoResolution::Res720 => "720",
+                    VideoResolution::Res480 => "480",
+                    VideoResolution::Res360 => "360",
+                };
+                let format_rule = format!(
+                    "bestvideo[ext=mp4][height<=?{}]+bestaudio[ext=m4a]/mp4[height<=?{}]/best[height<=?{}]",
+                    height_cap, height_cap, height_cap
+                );
                 downloader
-                    .format("bestvideo[ext=mp4]+bestaudio[ext=m4a]/mp4/best")
+                    .format(&format_rule)
                     .extra_arg("--merge-output-format")
                     .extra_arg("mp4")
                     .extra_arg("--force-overwrites");

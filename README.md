@@ -26,10 +26,10 @@ A high-performance, cross-platform command-line utility built in Rust to reliabl
 - [x] Offload download logic to background async tasks using `tokio::spawn` to keep the UI responsive.
 
 ### Phase 3: Audio Extraction, Resolution, & Batch Parsing (Next Up)
-- [ ] Implement `MediaFormat` enum parsing to natively support **M4A (Direct Stream Copy)** and **MP3 (High-Quality VBR)**.
-- [ ] Integrate explicit target resolution restrictions (`360p`, `480p`, `720p`, `1080p`) via strict stream height filters.
-- [ ] Add contextual UI state management (automatically graying out/disabling the Resolution dropdown when "Audio Only" is checked).
-- [ ] Implement string-splitting (`.lines()`) and sanitation to process multiple URLs sequentially or concurrently.
+- [x] Implement `MediaFormat` enum parsing to natively support **M4A (Direct Stream Copy)** and **MP3 (High-Quality VBR)**.
+- [x] Integrate explicit target resolution restrictions (`360p`, `480p`, `720p`, `1080p`) via strict stream height filters.
+- [x] Add contextual UI state management (automatically graying out/disabling the Resolution dropdown when "Audio Only" is checked).
+- [x] Implement string-splitting (`.lines()`) and sanitation to process multiple URLs sequentially or concurrently.
 
 ### Phase 4: Media Post-Processing & Upscaling (Future Expansion)
 - [ ] Introduce a modular "Sidecar Pattern" pipeline to invoke localized transcoders without expanding the base binary size.

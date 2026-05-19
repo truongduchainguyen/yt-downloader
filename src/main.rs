@@ -34,6 +34,7 @@ struct YtDownloaderApp {
     rx: tokio::sync::mpsc::Receiver<config::AppState>,
     tx: tokio::sync::mpsc::Sender<config::AppState>,
     engine_path: Option<std::path::PathBuf>,
+    selected_resolution: engine::VideoResolution,
 }
 
 // 4. Set the initial values when the app first launches
@@ -51,6 +52,7 @@ impl YtDownloaderApp {
             rx,
             tx,
             engine_path,
+            selected_resolution: engine::VideoResolution::Res1080,
         }
     }
 }
@@ -113,6 +115,42 @@ impl eframe::App for YtDownloaderApp {
 
                 // --- Toggle Checkbox Component ---
                 ui.checkbox(&mut self.is_audio_only, "🎵 Audio Only (MP3/M4A)");
+                ui.add_space(5.0);
+
+                ui.add_enabled_ui(!self.is_audio_only, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Target Resolution Cap:");
+                        egui::ComboBox::from_id_source("resolution_picker")
+                            .selected_text(match self.selected_resolution {
+                                engine::VideoResolution::Res1080 => "1080p (Full HD)",
+                                engine::VideoResolution::Res720 => "720 (HD)",
+                                engine::VideoResolution::Res480 => "480p",
+                                engine::VideoResolution::Res360 => "360p",
+                            })
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut self.selected_resolution,
+                                    engine::VideoResolution::Res1080,
+                                    "1080p (Full HD)",
+                                );
+                                ui.selectable_value(
+                                    &mut self.selected_resolution,
+                                    engine::VideoResolution::Res720,
+                                    "720p (HD)",
+                                );
+                                ui.selectable_value(
+                                    &mut self.selected_resolution,
+                                    engine::VideoResolution::Res480,
+                                    "480p",
+                                );
+                                ui.selectable_value(
+                                    &mut self.selected_resolution,
+                                    engine::VideoResolution::Res360,
+                                    "360p",
+                                );
+                            })
+                    })
+                })
             });
 
             ui.add_space(20.0);
@@ -155,6 +193,7 @@ impl eframe::App for YtDownloaderApp {
                     };
 
                     let dest_path = self.destination_path.clone();
+                    let target_res = self.selected_resolution;
 
                     tokio::spawn(async move {
                         let config = engine::DownloadConfig {
@@ -162,6 +201,7 @@ impl eframe::App for YtDownloaderApp {
                             destination_path: dest_path,
                             target_format,
                             engine_path,
+                            target_resolution: target_res,
                         };
 
                         match engine::run_download_engine(config).await {
