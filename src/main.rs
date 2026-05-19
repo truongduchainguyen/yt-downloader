@@ -12,13 +12,16 @@ async fn main() -> eframe::Result<()> {
             .with_resizable(true),
         ..Default::default()
     };
+    let engine_path = youtube_dl::download_yt_dlp(std::path::Path::new("."))
+        .await
+        .ok();
     let (tx, rx) = tokio::sync::mpsc::channel::<config::AppState>(32);
 
     // 2. Start the application loop
     eframe::run_native(
         "📥 YouTube Batch Downloader",
         native_options,
-        Box::new(|_cc| Box::new(YtDownloaderApp::new(tx, rx))),
+        Box::new(|_cc| Box::new(YtDownloaderApp::new(tx, rx, engine_path))),
     )
 }
 
@@ -30,6 +33,7 @@ struct YtDownloaderApp {
     state: config::AppState,
     rx: tokio::sync::mpsc::Receiver<config::AppState>,
     tx: tokio::sync::mpsc::Sender<config::AppState>,
+    engine_path: Option<std::path::PathBuf>,
 }
 
 // 4. Set the initial values when the app first launches
@@ -37,14 +41,16 @@ impl YtDownloaderApp {
     fn new(
         tx: tokio::sync::mpsc::Sender<config::AppState>,
         rx: tokio::sync::mpsc::Receiver<config::AppState>,
+        engine_path: Option<std::path::PathBuf>,
     ) -> Self {
         Self {
             url_input: String::new(),
-            destination_path: String::from("/home/ink/Downloads"), // Default Arch path
+            destination_path: String::from("Downloads"),
             is_audio_only: false,
             state: config::AppState::Idle(String::from("Ready")),
             rx,
             tx,
+            engine_path,
         }
     }
 }
@@ -54,6 +60,7 @@ impl eframe::App for YtDownloaderApp {
         match self.rx.try_recv() {
             Ok(new_state) => {
                 self.state = new_state;
+                ctx.request_repaint();
             }
             Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
                 // If the background thread dropped completely without sending a message,
@@ -64,6 +71,7 @@ impl eframe::App for YtDownloaderApp {
                     self.state = config::AppState::Error(String::from(
                         "Background thread disconnected unexpectedly.",
                     ));
+                    ctx.request_repaint();
                 }
             }
             Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {}
@@ -126,6 +134,12 @@ impl eframe::App for YtDownloaderApp {
                     println!("URLs to process:\n{}", self.url_input);
                     println!("Destination: {}", self.destination_path);
                     println!("Audio only mode: {}", self.is_audio_only);
+                    let Some(engine_path) = self.engine_path.clone() else {
+                        self.state = config::AppState::Error(String::from(
+                            "yt-dlp engine not found. Restart the app.",
+                        ));
+                        return;
+                    };
 
                     self.state =
                         config::AppState::Downloading(String::from("Initializing engine..."));
@@ -143,39 +157,23 @@ impl eframe::App for YtDownloaderApp {
                     let dest_path = self.destination_path.clone();
 
                     tokio::spawn(async move {
-                        // 🌟 1. Securely check/download the binary once per click action inside the thread container
-                        let provider_path = std::path::Path::new(".");
-                        match youtube_dl::download_yt_dlp(provider_path).await {
-                            Ok(yt_dlp_path) => {
-                                // 🌟 2. Construct configuration containing the locked-down engine path
-                                let config = engine::DownloadConfig {
-                                    urls: parsed_urls,
-                                    destination_path: dest_path,
-                                    target_format,
-                                    engine_path: yt_dlp_path,
-                                };
+                        let config = engine::DownloadConfig {
+                            urls: parsed_urls,
+                            destination_path: dest_path,
+                            target_format,
+                            engine_path,
+                        };
 
-                                // 🌟 3. Await the execution loop
-                                match engine::run_download_engine(config).await {
-                                    Ok(()) => {
-                                        let _ = tx
-                                            .send(config::AppState::Idle(String::from(
-                                                "Success! All files saved.",
-                                            )))
-                                            .await;
-                                    }
-                                    Err(err_msg) => {
-                                        let _ = tx.send(config::AppState::Error(err_msg)).await;
-                                    }
-                                }
-                            }
-                            Err(e) => {
+                        match engine::run_download_engine(config).await {
+                            Ok(()) => {
                                 let _ = tx
-                                    .send(config::AppState::Error(format!(
-                                        "Failed to fetch engine: {}",
-                                        e
+                                    .send(config::AppState::Idle(String::from(
+                                        "Success! All files saved.",
                                     )))
                                     .await;
+                            }
+                            Err(e) => {
+                                let _ = tx.send(config::AppState::Error(e)).await;
                             }
                         }
                     });

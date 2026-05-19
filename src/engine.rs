@@ -86,7 +86,8 @@ pub async fn run_download_engine(config: DownloadConfig) -> Result<(), String> {
                 downloader
                     .format("bestvideo[ext=mp4]+bestaudio[ext=m4a]/mp4/best")
                     .extra_arg("--merge-output-format")
-                    .extra_arg("mp4");
+                    .extra_arg("mp4")
+                    .extra_arg("--force-overwrites");
             }
         }
 
