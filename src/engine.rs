@@ -6,6 +6,7 @@ pub enum MediaFormat {
     Mp3,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum VideoResolution {
     Res1080,
     Res720,
