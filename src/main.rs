@@ -15,13 +15,17 @@ async fn main() -> eframe::Result<()> {
     let engine_path = youtube_dl::download_yt_dlp(std::path::Path::new("."))
         .await
         .ok();
+    let ffmpeg_path = engine::ensure_windows_ffmpeg(std::path::Path::new("."))
+        .await
+        .ok()
+        .flatten();
     let (tx, rx) = tokio::sync::mpsc::channel::<config::AppState>(32);
 
     // 2. Start the application loop
     eframe::run_native(
         "📥 YouTube Batch Downloader",
         native_options,
-        Box::new(|_cc| Box::new(YtDownloaderApp::new(tx, rx, engine_path))),
+        Box::new(|_cc| Box::new(YtDownloaderApp::new(tx, rx, engine_path, ffmpeg_path))),
     )
 }
 
@@ -34,6 +38,7 @@ struct YtDownloaderApp {
     rx: tokio::sync::mpsc::Receiver<config::AppState>,
     tx: tokio::sync::mpsc::Sender<config::AppState>,
     engine_path: Option<std::path::PathBuf>,
+    ffmpeg_path: Option<std::path::PathBuf>,
     selected_resolution: engine::VideoResolution,
 }
 
@@ -43,6 +48,7 @@ impl YtDownloaderApp {
         tx: tokio::sync::mpsc::Sender<config::AppState>,
         rx: tokio::sync::mpsc::Receiver<config::AppState>,
         engine_path: Option<std::path::PathBuf>,
+        ffmpeg_path: Option<std::path::PathBuf>,
     ) -> Self {
         Self {
             url_input: String::new(),
@@ -52,6 +58,7 @@ impl YtDownloaderApp {
             rx,
             tx,
             engine_path,
+            ffmpeg_path,
             selected_resolution: engine::VideoResolution::Res1080,
         }
     }
@@ -114,7 +121,7 @@ impl eframe::App for YtDownloaderApp {
                 ui.add_space(10.0);
 
                 // --- Toggle Checkbox Component ---
-                ui.checkbox(&mut self.is_audio_only, "🎵 Audio Only (MP3/M4A)");
+                ui.checkbox(&mut self.is_audio_only, "🎵 Audio Only (MP3)");
                 ui.add_space(5.0);
 
                 ui.add_enabled_ui(!self.is_audio_only, |ui| {
@@ -178,6 +185,22 @@ impl eframe::App for YtDownloaderApp {
                         ));
                         return;
                     };
+                    let ffmpeg_path = {
+                        #[cfg(windows)]
+                        {
+                            let Some(ffmpeg_path) = self.ffmpeg_path.clone() else {
+                                self.state = config::AppState::Error(String::from(
+                                    "ffmpeg engine not found. Restart the app while connected to the internet.",
+                                ));
+                                return;
+                            };
+                            Some(ffmpeg_path)
+                        }
+                        #[cfg(not(windows))]
+                        {
+                            self.ffmpeg_path.clone()
+                        }
+                    };
 
                     self.state =
                         config::AppState::Downloading(String::from("Initializing engine..."));
@@ -201,6 +224,7 @@ impl eframe::App for YtDownloaderApp {
                             destination_path: dest_path,
                             target_format,
                             engine_path,
+                            ffmpeg_path,
                             target_resolution: target_res,
                         };
 

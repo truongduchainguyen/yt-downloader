@@ -1,6 +1,9 @@
 use std::path::{Path, PathBuf};
 use youtube_dl::YoutubeDl;
 
+const WINDOWS_FFMPEG_URL: &str =
+    "https://github.com/yt-dlp/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip";
+
 pub enum MediaFormat {
     Mp4,
     Mp3,
@@ -20,6 +23,114 @@ pub struct DownloadConfig {
     pub target_format: MediaFormat,
     pub target_resolution: VideoResolution,
     pub engine_path: PathBuf,
+    pub ffmpeg_path: Option<PathBuf>,
+}
+
+pub async fn ensure_windows_ffmpeg(install_dir: &Path) -> Result<Option<PathBuf>, String> {
+    if !cfg!(windows) {
+        return Ok(None);
+    }
+
+    std::fs::create_dir_all(install_dir)
+        .map_err(|e| format!("Failed to create ffmpeg install directory: {}", e))?;
+
+    let ffmpeg_path = install_dir.join("ffmpeg.exe");
+    if ffmpeg_path.exists() {
+        return std::path::absolute(ffmpeg_path)
+            .map(Some)
+            .map_err(|e| format!("Cannot resolve ffmpeg path: {}", e));
+    }
+
+    let zip_path = install_dir.join("ffmpeg-windows.zip");
+    let extract_dir = install_dir.join("ffmpeg-windows");
+
+    if extract_dir.exists() {
+        std::fs::remove_dir_all(&extract_dir)
+            .map_err(|e| format!("Failed to clear old ffmpeg directory: {}", e))?;
+    }
+
+    println!("Downloading Windows ffmpeg...");
+    let response = reqwest::get(WINDOWS_FFMPEG_URL)
+        .await
+        .map_err(|e| format!("Failed to download ffmpeg: {}", e))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "Failed to download ffmpeg: HTTP {}",
+            response.status()
+        ));
+    }
+
+    let archive_bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("Failed to read ffmpeg download: {}", e))?;
+    tokio::fs::write(&zip_path, &archive_bytes)
+        .await
+        .map_err(|e| format!("Failed to save ffmpeg download: {}", e))?;
+
+    std::fs::create_dir_all(&extract_dir)
+        .map_err(|e| format!("Failed to create ffmpeg extract directory: {}", e))?;
+
+    let zip_path_arg = powershell_single_quoted_path(&zip_path);
+    let extract_dir_arg = powershell_single_quoted_path(&extract_dir);
+    let expand_archive_command = format!(
+        "Expand-Archive -LiteralPath {} -DestinationPath {} -Force",
+        zip_path_arg, extract_dir_arg
+    );
+
+    let status = std::process::Command::new("powershell.exe")
+        .arg("-NoProfile")
+        .arg("-ExecutionPolicy")
+        .arg("Bypass")
+        .arg("-Command")
+        .arg(expand_archive_command)
+        .status()
+        .map_err(|e| format!("Failed to run PowerShell unzip for ffmpeg: {}", e))?;
+
+    if !status.success() {
+        return Err(String::from("Failed to extract ffmpeg archive."));
+    }
+
+    let extracted_ffmpeg = find_file_named(&extract_dir, "ffmpeg.exe")
+        .ok_or_else(|| String::from("ffmpeg.exe was not found in the downloaded archive."))?;
+
+    std::fs::copy(&extracted_ffmpeg, &ffmpeg_path)
+        .map_err(|e| format!("Failed to install ffmpeg.exe: {}", e))?;
+
+    let _ = std::fs::remove_file(&zip_path);
+    let _ = std::fs::remove_dir_all(&extract_dir);
+
+    std::path::absolute(ffmpeg_path)
+        .map(Some)
+        .map_err(|e| format!("Cannot resolve ffmpeg path: {}", e))
+}
+
+fn find_file_named(dir: &Path, file_name: &str) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(dir).ok()?;
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_file()
+            && path
+                .file_name()
+                .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(file_name))
+        {
+            return Some(path);
+        }
+
+        if path.is_dir() {
+            if let Some(found) = find_file_named(&path, file_name) {
+                return Some(found);
+            }
+        }
+    }
+
+    None
+}
+
+fn powershell_single_quoted_path(path: &Path) -> String {
+    let escaped = path.to_string_lossy().replace('\'', "''");
+    format!("'{}'", escaped)
 }
 
 pub async fn run_download_engine(config: DownloadConfig) -> Result<(), String> {
@@ -72,6 +183,18 @@ pub async fn run_download_engine(config: DownloadConfig) -> Result<(), String> {
             .youtube_dl_path(&config.engine_path)
             .extra_arg("--output")
             .extra_arg(&output_template);
+
+        if cfg!(windows) {
+            let ffmpeg_path = config.ffmpeg_path.as_ref().ok_or_else(|| {
+                String::from(
+                    "ffmpeg engine not found. Restart the app while connected to the internet.",
+                )
+            })?;
+            let ffmpeg_location = ffmpeg_path.to_string_lossy().to_string();
+            downloader
+                .extra_arg("--ffmpeg-location")
+                .extra_arg(&ffmpeg_location);
+        }
 
         // Windows: illegal chars. macOS/Linux: unicode edge cases
         if cfg!(windows) {
